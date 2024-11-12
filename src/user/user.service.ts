@@ -1,0 +1,95 @@
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { Prisma, User } from '@prisma/client';
+import { PrismaService } from '../prisma/prisma.service';
+import { SignInDTO } from './dto/signin.dto';
+import { JwtPayLoad } from './jwt/jwt.payload';
+import { JwtService } from '@nestjs/jwt';
+import { compare, hashSync } from 'bcrypt';
+
+@Injectable()
+export class UserService {
+  constructor(
+    private prisma: PrismaService,
+    private jwtService: JwtService,
+  ) {}
+
+  async user(
+    userWhereUniqueInput: Prisma.UserWhereUniqueInput,
+  ): Promise<User | null> {
+    return this.prisma.user.findUnique({
+      where: userWhereUniqueInput,
+    });
+  }
+
+  async users(params: {
+    skip?: number;
+    take?: number;
+    cursor?: Prisma.UserWhereUniqueInput;
+    where?: Prisma.UserWhereInput;
+    orderBy?: Prisma.UserOrderByWithRelationInput;
+  }): Promise<User[]> {
+    const { skip, take, cursor, where, orderBy } = params;
+    return this.prisma.user.findMany({
+      skip,
+      take,
+      cursor,
+      where,
+      orderBy,
+    });
+  }
+
+  async createUser(data: Prisma.UserCreateInput): Promise<User> {
+    return this.prisma.user.create({
+      data,
+    });
+  }
+
+  async updateUser(params: {
+    where: Prisma.UserWhereUniqueInput;
+    data: Prisma.UserUpdateInput;
+  }): Promise<User> {
+    const { where, data } = params;
+    return this.prisma.user.update({
+      data,
+      where,
+    });
+  }
+
+  async deleteUser(where: Prisma.UserWhereUniqueInput): Promise<User> {
+    return this.prisma.user.delete({
+      where,
+    });
+  }
+
+  async signIn({
+    username,
+    password,
+  }: SignInDTO): Promise<{ accessToken: string }> {
+    const user: User = await this.prisma.user.findFirst({
+      where: { username },
+    });
+
+    const isPasswordValid = await compare(password, user.password);
+
+    if (!isPasswordValid) {
+      throw new UnauthorizedException('Invalid password');
+    }
+
+    if (!user) {
+      throw new NotFoundException('Invalid credentials');
+    }
+
+    const { isAdmin } = user;
+
+    //Hash the payload and sign with secret
+    const payload: JwtPayLoad = { username, isAdmin };
+    const accessToken = this.jwtService.sign(payload);
+    Logger.log('Signin success');
+    return { accessToken };
+  }
+}
